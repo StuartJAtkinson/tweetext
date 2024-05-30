@@ -74,7 +74,7 @@ async def checkStatus(url, session: ClientSession, sem: asyncio.Semaphore, proxy
     
 # controls our async event loop
 async def asyncStarter(url_list, semaphore_size, proxy_list):
-    
+
     status_list = []
     headers = {'user-agent':'Mozilla/5.0 (compatible; DuckDuckBot-Https/1.1; https://duckduckgo.com/duckduckbot)'}
     proxy_server = chooseRandomProxy(proxy_list)
@@ -91,7 +91,7 @@ async def asyncStarter(url_list, semaphore_size, proxy_list):
                 break
             except:
                 proxy_server = chooseRandomProxy(proxy_list)
-                print(f"Error. Trying a differ proxy: {proxy_server}")
+                print(f"Error. Trying a different proxy: {proxy_server}")
                 status_list = []
                 
     # return a list of the results 
@@ -120,6 +120,7 @@ parser.add_argument('-to', '--todate', required=False, default='')
 parser.add_argument('--batch-size', type=int, required=False, default=300, help="How many urls to examine at once.")
 parser.add_argument('--semaphore-size', type=int, required=False, default=50, help="How many urls(from --batch-size) to query at once. Between 1 and 50")
 parser.add_argument('--proxy-file', required=False, default='', help="A list of proxies the script will rotate through")
+parser.add_argument('--batch-delay', type=float, required=False, default=2, help="Delay between batches in seconds.")
 args = vars(parser.parse_args())
 
 account_name = args['username']
@@ -128,6 +129,7 @@ to_date = args['todate']
 batch_size = args['batch_size']
 semaphore_size = args['semaphore_size']
 proxy_file = args['proxy_file']
+batch_delay = args['batch_delay']
 
 proxy_list = []
 if proxy_file != '':
@@ -165,60 +167,4 @@ wayback_cdx_url = f"https://web.archive.org/cdx/search/cdx?url=twitter.com/{acco
                   f"&matchType=prefix&filter=statuscode:200&mimetype:text/html&from={from_date}&to={to_date}"
 cdx_page_text = requests.get(wayback_cdx_url).text
 
-if len(re.findall(r'Blocked', cdx_page_text)) != 0:
-    print(f"Sorry, no deleted Tweets can be retrieved for {account_name}.\n"
-          f"This is because the Wayback Machine excludes Tweets for this handle.")
-    sys.exit(-1)
-
-# Capitalization does not matter for twitter links. Url parameters after '?' do not matter either.
-# create a dict of {twitter_url: wayback_id}
-tweet_id_and_url_dict = {line.split()[2].lower().split('?')[0]: line.split()[1] for line in cdx_page_text.splitlines()}
-
-number_of_elements = len(tweet_id_and_url_dict)
-if number_of_elements >= 1000:
-    print(f"Getting the status codes of {number_of_elements} unique archived Tweets...\nThat's a lot of Tweets! "
-          f"It's gonna take some time.\nTip: You can use -from and -to to narrow your search between two dates.")
-else:
-    print(f"Getting the status codes of {number_of_elements} archived Tweets...\n")
-
-# Create a dict of wayback url
-wayback_url_dict = {}
-for url, number in tweet_id_and_url_dict.items():
-    wayback_url_dict[number] = f"https://web.archive.org/web/{number}/{url}"
-
-futures_list = []
-tweet_class = re.compile('.*TweetTextSize TweetTextSize--jumbo.*')
-
-# Create a dir and a txt file
-directory = Path(account_name)
-directory.mkdir(exist_ok=True)
-f = open(f"{account_name}/{account_name}_tweets.txt", 'w')
-f.close()
-
-
-with FuturesSession(max_workers=5) as session:
-    loader = Loader("Loading tweets...", "Done!", 0.1).start()
-    for number, url in tqdm(wayback_url_dict.items(), position=0, leave=True, total=len(wayback_url_dict)):
-        futures_list.append(session.get(url))
-loader.stop()
-sleep(1)
-print("Downloading tweets...")
-for future in tqdm(as_completed(futures_list), position=0, leave=True, total=len(futures_list)):
-    try:
-        result = future.result()
-        # Take the results and put them in variables
-        tweet = bs4.BeautifulSoup(result.content, "lxml").find("p", {"class": tweet_class}).getText()
-        tweet_link = bs4.BeautifulSoup(result.content, "lxml").find("link", {"rel": "canonical"})['href']
-        # Open file and write
-        with open(f"{account_name}/{account_name}_tweets.txt", 'a') as f:
-            f.write(tweet_link + "\n" + tweet + "\n---\n")
-    except AttributeError:
-        pass
-    except ConnectionError:
-        print('Connection error occurred while fetching tweet text!')
-    except Exception:  # não pega MemoryError, SystemExit, KeyboardInterrupt
-        pass
-
-print(f"\nA text file ({account_name}_text.txt) is saved, which lists all URLs for the deleted Tweets and "
-    f"their text, has been saved.\nYou can find it inside the folder "
-    f"{Back.MAGENTA + Fore.WHITE + account_name + Back.BLACK + Fore.WHITE}.")
+if len(re.findall(r'Blocked', cdx_page_text
